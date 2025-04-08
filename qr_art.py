@@ -12,6 +12,7 @@ from diffusers import (
     EulerDiscreteScheduler,
 )
 
+
 # ---------------------------- helpers ---------------------------- #
 def _resize(img: Image.Image, res: int = 768) -> Image.Image:
     img = img.convert("RGB")
@@ -46,8 +47,29 @@ def _load_pipe(device: str):
     )
     pipe.to(device)
     # uncomment if xformers is available
-    # pipe.enable_xformers_memory_efficient_attention()
+    pipe.enable_xformers_memory_efficient_attention()
+    pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+    pipe.enable_model_cpu_offload()
     return pipe
+
+# Add this function to handle .webp conversion
+def load_image(image_path: str) -> Image.Image:
+    img = Image.open(image_path)
+    if img.format == 'WEBP':
+        img = img.convert('RGBA')  # Convert to RGBA or any other format you need
+    return img
+
+# Resize function for condition images
+def resize_for_condition_image(input_image: Image, resolution: int) -> Image.Image:
+    input_image = input_image.convert("RGB")
+    W, H = input_image.size
+    k = float(resolution) / min(H, W)
+    H *= k
+    W *= k
+    H = int(round(H / 64.0)) * 64
+    W = int(round(W / 64.0)) * 64
+    img = input_image.resize((W, H), resample=Image.LANCZOS)
+    return img
 
 # ----------------------- public entry‑point ---------------------- #
 def generate_qr_art(
@@ -55,6 +77,7 @@ def generate_qr_art(
     prompt: str = "",
     negative_prompt: str = "ugly, disfigured, low quality, blurry, nsfw",
     *,
+    init_image: Image.Image | None = None,
     qr_code_image: Image.Image | None = None,
     guidance_scale: float = 10.0,
     controlnet_conditioning_scale: float = 2.0,
@@ -80,6 +103,11 @@ def generate_qr_art(
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     pipe = _load_pipe(device)
 
+    # Resize init_image if provided
+    if init_image is not None:
+        init_image = load_image(init_image)
+        init_image = resize_for_condition_image(init_image, 768)
+
     # ---------------------------------------------------------------- QR code
     if qr_code_image is None:
         qr = qrcode.QRCode(
@@ -94,6 +122,9 @@ def generate_qr_art(
     qr_code_image = _resize(qr_code_image, max(width, height))
 
     # ---------------------------------------------------------------- Sampler
+    pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+    pipe.enable_xformers_memory_efficient_attention()
+    pipe.enable_model_cpu_offload()
     pipe.scheduler = _SAMPLERS[sampler](pipe.scheduler.config)
 
     # ---------------------------------------------------------------- Diffuse
@@ -101,7 +132,7 @@ def generate_qr_art(
     result = pipe(
         prompt           = prompt,
         negative_prompt  = negative_prompt,
-        image            = qr_code_image,
+        image            = init_image,
         control_image    = qr_code_image,
         width            = width,
         height           = height,
