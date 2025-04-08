@@ -1,1 +1,4 @@
 .DS_Store
+samples/
+__pycache__/
+venv/
