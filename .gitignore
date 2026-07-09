@@ -2,3 +2,5 @@
 samples/
 __pycache__/
 venv/
+# AI-tool scaffolding
+*.code-workspace
