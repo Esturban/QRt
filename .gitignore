@@ -4,3 +4,4 @@ __pycache__/
 venv/
 # AI-tool scaffolding
 *.code-workspace
+.codegraph/
